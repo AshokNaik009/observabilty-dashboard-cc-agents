@@ -1,0 +1,70 @@
+┌──────────────────────────────────────────────────┐
+│  AGENT TEAM PERFORMANCE INSIGHTS                 │
+│  Are your AI teams performing up to mark?        │
+└──────────────────────────────────────────────────┘
+
+ PROFILE STATS (ALL-TIME)
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Total Sessions            47
+   Total Agents Spawned      156
+   Total Communications      892
+   Total Tasks Created       234
+
+   Average Session           24m 15s
+   Agents per Session        3.3
+   Date Range                Jan 15, 2025 → Feb 12, 2026
+
+ MOST USED TOOLS
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    1. Read               ████████████████████ 450
+    2. Write              ██████████████▎      320
+    3. Bash               ████████             180
+    4. Edit               ██████▍              145
+    5. Grep               █████                112
+
+ PROJECT BREAKDOWN
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────┬──────────┬─────────┬────────┬──────────────┐
+│ Project                 │ Sessions │ Agents  │ Comms  │ Last Active  │
+├─────────────────────────┼──────────┼─────────┼────────┼──────────────┤
+│ my-web-app              │       12 │      45 │    230 │ 2d ago       │
+│ ai-agents-research      │        8 │      28 │    156 │ 5d ago       │
+│ web-dashboard           │        5 │      15 │     78 │ 1w ago       │
+└─────────────────────────┴──────────┴─────────┴────────┴──────────────┘
+
+ TRENDS
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Last 7 Days:       ▂▃▅▇█▆▃  (18 sessions)
+   Last 30 Days:      45 sessions
+   Peak Activity:     Wednesdays at 2 PM
+
+ TEAM OPTIMIZATION INSIGHTS
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Optimal Team Size:        3 agents
+   Current Avg Size:         3.3 agents
+   Performance Score:        72/100
+
+   Agent Utilization:
+   * Lead              ████████░░ 80%
+   * backend-worker    ███████░░░ 70%
+   * frontend-worker   ██████░░░░ 55%
+   * test-runner       ████░░░░░░ 40%
+   ! docs-writer       ██░░░░░░░░ 18%
+
+   Top Workflows:
+     Read -> Edit              87x  Read-then-edit workflow (review before change)
+     Grep -> Read              63x  Search-then-read workflow (find then inspect)
+     Edit -> Bash              41x  Edit-then-run workflow (change then test)
+
+   Recommendations:
+   * Team size (~3.3 agents) is near optimal (3)
+   ! Underutilized agents detected: docs-writer (consider consolidating)
+   * Communication balance is healthy (5.7 messages/agent)
+   * Top workflow: Read -> Edit (87x) - Read-then-edit workflow
+   * Overall performance score: 72/100
+
+ GENERAL INSIGHTS
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   * Most active project: my-web-app (12 sessions)
+   * Longest session: 2h 15m (my-web-app)
+   * Average frequency: 3.2 sessions/week

@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Observability</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script>
+    window.d3Available = typeof d3 !== 'undefined';
+    if (!window.d3Available) {
+      console.warn('D3.js failed to load from CDN, using fallback layout');
+    }
+  </script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: '#0f1117',
+            panel: '#1a1d27',
+            border: '#2a2d3a',
+            muted: '#6b7280'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
+    .slide-over { transform: translateX(100%); transition: transform 0.25s ease; }
+    .slide-over.open { transform: translateX(0); }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-in { animation: fadeIn 0.2s ease; }
+  </style>
+</head>
+<body class="bg-surface text-gray-200 h-screen flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="flex items-center justify-between px-6 py-3 border-b border-border bg-panel shrink-0">
+    <h1 class="text-lg font-semibold tracking-tight text-white">Agent Observability</h1>
+    <button id="refreshBtn" onclick="refresh()" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 rounded-md transition-colors">Refresh</button>
+  </header>
+
+  <!-- Main layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="w-72 border-r border-border bg-panel overflow-y-auto scrollbar-thin shrink-0">
+      <div class="p-4">
+        <h2 class="text-xs font-medium text-muted uppercase tracking-wider mb-3">Sessions</h2>
+        <div id="sessionList" class="space-y-1">
+          <div class="text-sm text-muted py-8 text-center">Loading...</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main id="mainContent" class="flex-1 overflow-y-auto scrollbar-thin p-6">
+      <div id="emptyState" class="flex items-center justify-center h-full text-muted text-sm">
+        Select a session from the sidebar
+      </div>
+      <div id="sessionView" class="hidden space-y-6">
+        <!-- Stats bar -->
+        <div id="statsBar" class="flex gap-4"></div>
+        <!-- Flow diagram -->
+        <div class="bg-panel border border-border rounded-lg p-4">
+          <h3 class="text-xs font-medium text-muted uppercase tracking-wider mb-3">Agent Flow</h3>
+          <svg id="flowDiagram" class="w-full" style="min-height: 180px;"></svg>
+        </div>
+        <!-- Timeline -->
+        <div class="bg-panel border border-border rounded-lg p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-medium text-muted uppercase tracking-wider">Communication Timeline</h3>
+            <button id="clearFilter" onclick="clearTimelineFilter()" class="hidden text-xs text-indigo-400 hover:text-indigo-300">Clear filter</button>
+          </div>
+          <div id="timeline" class="space-y-2 max-h-[50vh] overflow-y-auto scrollbar-thin"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Slide-over panel -->
+  <div id="overlay" class="fixed inset-0 bg-black/50 hidden z-40" onclick="closePanel()"></div>
+  <div id="slidePanel" class="slide-over fixed top-0 right-0 h-full w-[40vw] max-w-2xl bg-panel border-l border-border z-50 flex flex-col">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+      <span id="panelTitle" class="text-sm font-medium text-white"></span>
+      <button onclick="closePanel()" class="text-muted hover:text-white text-lg">&times;</button>
+    </div>
+    <div id="panelBody" class="flex-1 overflow-y-auto scrollbar-thin p-5">
+      <pre id="panelContent" class="text-sm text-gray-300 whitespace-pre-wrap break-words leading-relaxed"></pre>
+    </div>
+  </div>
+
+<script>
+const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'cyan', 'violet'];
+const COLOR_MAP = {
+  indigo:  { bg: 'bg-indigo-500/20',  text: 'text-indigo-400',  border: 'border-indigo-500/30', hex: '#818cf8' },
+  emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', hex: '#34d399' },
+  amber:   { bg: 'bg-amber-500/20',   text: 'text-amber-400',   border: 'border-amber-500/30',  hex: '#fbbf24' },
+  rose:    { bg: 'bg-rose-500/20',     text: 'text-rose-400',    border: 'border-rose-500/30',   hex: '#fb7185' },
+  cyan:    { bg: 'bg-cyan-500/20',     text: 'text-cyan-400',    border: 'border-cyan-500/30',   hex: '#22d3ee' },
+  violet:  { bg: 'bg-violet-500/20',   text: 'text-violet-400',  border: 'border-violet-500/30', hex: '#a78bfa' }
+};
+
+let currentSession = null;
+let agentColorMap = {};
+let timelineFilter = null;
+
+// --- API ---
+async function fetchSessions() {
+  const res = await fetch('/api/sessions');
+  return res.json();
+}
+async function fetchSession(id) {
+  const res = await fetch('/api/sessions/' + encodeURIComponent(id));
+  return res.json();
+}
+
+// --- Init ---
+async function init() {
+  const sessions = await fetchSessions();
+  renderSessionList(sessions);
+}
+
+async function refresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.textContent = '...';
+  await fetch('/api/refresh', { method: 'POST' });
+  const sessions = await fetchSessions();
+  renderSessionList(sessions);
+  if (currentSession) {
+    await selectSession(currentSession.id);
+  }
+  btn.textContent = 'Refresh';
+}
+
+// --- Session List ---
+function renderSessionList(sessions) {
+  const el = document.getElementById('sessionList');
+  if (!sessions.length) {
+    el.innerHTML = '<div class="text-sm text-muted py-8 text-center">No team sessions found</div>';
+    return;
+  }
+  el.innerHTML = sessions.map(s => {
+    const date = s.startTime ? new Date(s.startTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown';
+    let displayName;
+    if (s.gitBranch && s.gitBranch.trim()) {
+      const projShort = s.projectName.split('/').filter(Boolean).pop() || s.projectName;
+      displayName = `${s.gitBranch} \u2022 ${projShort}`;
+    } else {
+      displayName = s.projectName.split('/').filter(Boolean).slice(-2).join('/');
+    }
+    return `<button onclick="selectSession('${s.id}')"
+      class="session-item w-full text-left px-3 py-2.5 rounded-md hover:bg-white/5 transition-colors group"
+      data-id="${s.id}">
+      <div class="text-sm text-gray-300 group-hover:text-white truncate">${displayName}</div>
+      <div class="flex items-center gap-2 mt-1">
+        <span class="text-xs text-muted">${date}</span>
+        <span class="text-xs text-muted">${s.agentCount} agent${s.agentCount !== 1 ? 's' : ''}</span>
+      </div>
+    </button>`;
+  }).join('');
+}
+
+// --- Select Session ---
+async function selectSession(id) {
+  document.querySelectorAll('.session-item').forEach(el => {
+    el.classList.toggle('bg-white/10', el.dataset.id === id);
+  });
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('sessionView').classList.remove('hidden');
+
+  const data = await fetchSession(id);
+  currentSession = data;
+  timelineFilter = null;
+  document.getElementById('clearFilter').classList.add('hidden');
+
+  // Assign colors to agents
+  agentColorMap = {};
+  const agentIds = Object.keys(data.agents);
+  agentIds.forEach((aid, i) => {
+    agentColorMap[aid] = COLORS[i % COLORS.length];
+  });
+
+  renderStats(data);
+  renderFlow(data);
+  renderTimeline(data.communications);
+}
+
+// --- Stats ---
+function renderStats(data) {
+  const agentCount = Object.keys(data.agents).length;
+  const commCount = data.communications.length;
+  const dur = data.duration ? formatDuration(data.duration) : 'N/A';
+  const el = document.getElementById('statsBar');
+  el.innerHTML = [
+    statCard('Agents', agentCount),
+    statCard('Messages', commCount),
+    statCard('Duration', dur),
+    statCard('Events', data.stats.totalEvents)
+  ].join('');
+}
+
+function statCard(label, value) {
+  return `<div class="bg-panel border border-border rounded-lg px-4 py-3 flex-1 animate-in">
+    <div class="text-xs text-muted uppercase tracking-wider">${label}</div>
+    <div class="text-xl font-semibold text-white mt-1">${value}</div>
+  </div>`;
+}
+
+function formatDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + (s % 60) + 's';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
+// --- Flow Diagram ---
+let currentSimulation = null;
+
+function renderFlow(data) {
+  // Remove previous zoom controls if any
+  const oldControls = document.getElementById('zoomControls');
+  if (oldControls) oldControls.remove();
+  // Stop previous simulation
+  if (currentSimulation) { currentSimulation.stop(); currentSimulation = null; }
+
+  if (window.d3Available) {
+    renderFlowForceDirected(data);
+  } else {
+    renderFlowVertical(data);
+  }
+}
+
+function renderFlowVertical(data) {
+  const svg = document.getElementById('flowDiagram');
+  const agents = Object.values(data.agents);
+  const comms = data.communications;
+
+  // Count communications between pairs
+  const pairCount = {};
+  for (const c of comms) {
+    const key = c.from + '>' + c.to;
+    pairCount[key] = (pairCount[key] || 0) + 1;
+  }
+
+  // Layout: lead agent on left, subagents stacked on right
+  const lead = agents.find(a => a.isLead) || agents[0];
+  const subs = agents.filter(a => a.id !== lead.id);
+
+  const nodeW = 140, nodeH = 44;
+  const leftX = 40;
+  const rightX = 340;
+  const totalHeight = Math.max(180, (subs.length * (nodeH + 30)) + 40);
+  svg.setAttribute('viewBox', `0 0 540 ${totalHeight}`);
+  svg.style.minHeight = totalHeight + 'px';
+
+  let html = '<defs><marker id="arrow" viewBox="0 0 10 6" refX="10" refY="3" markerWidth="8" markerHeight="6" orient="auto"><path d="M0,0 L10,3 L0,6" fill="#4f5563"/></marker></defs>';
+
+  const leadY = totalHeight / 2 - nodeH / 2;
+
+  // Draw edges
+  subs.forEach((sub, i) => {
+    const subY = 20 + i * (nodeH + 30);
+    const fromCount = pairCount[lead.id + '>' + sub.id] || 0;
+    const toCount = pairCount[sub.id + '>' + lead.id] || 0;
+    const total = fromCount + toCount;
+    if (total === 0) return;
+
+    const strokeW = Math.min(1 + total * 0.5, 5);
+    const x1 = leftX + nodeW;
+    const y1 = leadY + nodeH / 2;
+    const x2 = rightX;
+    const y2 = subY + nodeH / 2;
+    const cx1 = x1 + 60, cx2 = x2 - 60;
+
+    const edgeColor = agentColorMap[sub.id] ? COLOR_MAP[agentColorMap[sub.id]].hex : '#4f5563';
+
+    html += `<path d="M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}"
+      fill="none" stroke="${edgeColor}" stroke-width="${strokeW}" stroke-opacity="0.5"
+      marker-end="url(#arrow)"
+      class="cursor-pointer hover:stroke-opacity-100 transition-all"
+      onclick="filterTimeline('${lead.id}','${sub.id}')"/>`;
+    html += `<text x="${(x1+x2)/2}" y="${(y1+y2)/2 - 6}" text-anchor="middle" class="fill-gray-500 text-[10px]">${total} msg</text>`;
+  });
+
+  // Also draw sub-to-sub edges
+  for (let i = 0; i < subs.length; i++) {
+    for (let j = i + 1; j < subs.length; j++) {
+      const a = subs[i], b = subs[j];
+      const cnt = (pairCount[a.id + '>' + b.id] || 0) + (pairCount[b.id + '>' + a.id] || 0);
+      if (cnt === 0) continue;
+      const y1 = 20 + i * (nodeH + 30) + nodeH / 2;
+      const y2 = 20 + j * (nodeH + 30) + nodeH / 2;
+      const x = rightX + nodeW + 20;
+      html += `<path d="M${rightX + nodeW},${y1} C${x},${y1} ${x},${y2} ${rightX + nodeW},${y2}"
+        fill="none" stroke="#4f5563" stroke-width="1.5" stroke-opacity="0.4"
+        marker-end="url(#arrow)"
+        class="cursor-pointer hover:stroke-opacity-100"
+        onclick="filterTimeline('${a.id}','${b.id}')"/>`;
+      html += `<text x="${x + 4}" y="${(y1+y2)/2 + 3}" text-anchor="start" class="fill-gray-500 text-[10px]">${cnt}</text>`;
+    }
+  }
+
+  // Draw lead node
+  html += agentNode(lead, leftX, leadY, nodeW, nodeH);
+
+  // Draw sub nodes
+  subs.forEach((sub, i) => {
+    const subY = 20 + i * (nodeH + 30);
+    html += agentNode(sub, rightX, subY, nodeW, nodeH);
+  });
+
+  svg.innerHTML = html;
+}
+
+function agentNode(agent, x, y, w, h) {
+  const color = agentColorMap[agent.id] || 'indigo';
+  const c = COLOR_MAP[color];
+  const label = agent.name || agent.id.slice(0, 12);
+  const badge = agent.isLead ? ' (Lead)' : '';
+  return `<g class="cursor-pointer" onclick="filterTimeline('${agent.id}')">
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${c.hex}22" stroke="${c.hex}55" stroke-width="1.5"/>
+    <text x="${x + w/2}" y="${y + h/2 - 2}" text-anchor="middle" dominant-baseline="middle"
+      class="text-[11px] font-medium" fill="${c.hex}">${truncate(label, 16)}${badge}</text>
+    <text x="${x + w/2}" y="${y + h/2 + 12}" text-anchor="middle"
+      class="text-[9px]" fill="#6b7280">${agent.eventCount} events</text>
+  </g>`;
+}
+
+// --- Force-Directed Graph Layout ---
+function renderFlowForceDirected(data) {
+  const svgEl = document.getElementById('flowDiagram');
+  const agents = Object.values(data.agents);
+  const comms = data.communications;
+
+  // Count communications between pairs
+  const pairCount = {};
+  for (const c of comms) {
+    const key = c.from + '>' + c.to;
+    pairCount[key] = (pairCount[key] || 0) + 1;
+  }
+
+  // Build nodes first so we can validate links
+  const nodes = agents.map(a => ({
+    id: a.id,
+    name: a.name || a.id.slice(0, 12),
+    isLead: a.isLead,
+    eventCount: a.eventCount,
+    color: agentColorMap[a.id] || 'indigo'
+  }));
+
+  const nodeMap = {};
+  nodes.forEach(n => { nodeMap[n.id] = n; });
+
+  // Build name-to-ID lookup (communications may reference agents by name)
+  const nameToId = {};
+  agents.forEach(a => {
+    if (a.name) nameToId[a.name] = a.id;
+  });
+  function resolveId(ref) {
+    if (nodeMap[ref]) return ref;
+    if (nameToId[ref]) return nameToId[ref];
+    return null;
+  }
+
+  // Build unique links (bidirectional merged), skip any referencing unknown agents
+  const linkMap = {};
+  for (const c of comms) {
+    const fromId = resolveId(c.from);
+    const toId = resolveId(c.to);
+    if (!fromId || !toId || fromId === toId) continue;
+    const key = [fromId, toId].sort().join('|');
+    if (!linkMap[key]) {
+      linkMap[key] = { source: fromId, target: toId, count: 0 };
+    }
+    linkMap[key].count++;
+  }
+  const links = Object.values(linkMap);
+
+  // SVG setup
+  const container = svgEl.parentElement;
+  const width = container.clientWidth - 32; // account for padding
+  const height = Math.max(400, agents.length * 45);
+  svgEl.style.minHeight = height + 'px';
+  svgEl.innerHTML = '';
+  svgEl.removeAttribute('viewBox');
+  svgEl.setAttribute('width', width);
+  svgEl.setAttribute('height', height);
+
+  const svg = d3.select(svgEl);
+
+  // Defs: colored arrow markers
+  const defs = svg.append('defs');
+  COLORS.forEach(color => {
+    defs.append('marker')
+      .attr('id', `arrow-${color}`)
+      .attr('viewBox', '0 0 10 6')
+      .attr('refX', 28)
+      .attr('refY', 3)
+      .attr('markerWidth', 8)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,0 L10,3 L0,6')
+      .attr('fill', COLOR_MAP[color].hex);
+  });
+
+  // Container group for zoom/pan
+  const g = svg.append('g');
+
+  // Zoom behavior
+  const zoom = d3.zoom()
+    .scaleExtent([0.3, 3])
+    .on('zoom', (event) => {
+      g.attr('transform', event.transform);
+    });
+  svg.call(zoom);
+
+  // Force simulation
+  const simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(120))
+    .force('charge', d3.forceManyBody().strength(-400))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collide', d3.forceCollide(80));
+  currentSimulation = simulation;
+
+  // Draw links
+  const link = g.selectAll('.link')
+    .data(links)
+    .enter().append('g')
+    .attr('class', 'link');
+
+  const linkPath = link.append('path')
+    .attr('fill', 'none')
+    .attr('stroke', d => {
+      const targetColor = nodeMap[d.target.id || d.target]?.color || 'indigo';
+      return COLOR_MAP[targetColor].hex;
+    })
+    .attr('stroke-width', d => Math.min(1.5 + d.count * 0.5, 5))
+    .attr('stroke-opacity', 0.7)
+    .attr('marker-end', d => {
+      const targetColor = nodeMap[d.target.id || d.target]?.color || 'indigo';
+      return `url(#arrow-${targetColor})`;
+    })
+    .style('cursor', 'pointer')
+    .on('click', (event, d) => {
+      const srcId = d.source.id || d.source;
+      const tgtId = d.target.id || d.target;
+      filterTimeline(srcId, tgtId);
+    })
+    .on('mouseover', function() { d3.select(this).attr('stroke-opacity', 1); })
+    .on('mouseout', function() { d3.select(this).attr('stroke-opacity', 0.7); });
+
+  // Link labels
+  const linkLabel = link.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#6b7280')
+    .attr('font-size', '10px')
+    .text(d => d.count + ' msg');
+
+  // Draw nodes
+  const nodeW = 140, nodeH = 44;
+
+  const node = g.selectAll('.node')
+    .data(nodes)
+    .enter().append('g')
+    .attr('class', 'node')
+    .style('cursor', 'pointer')
+    .on('click', (event, d) => {
+      filterTimeline(d.id);
+    })
+    .call(d3.drag()
+      .on('start', (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      })
+      .on('drag', (event, d) => {
+        d.fx = event.x;
+        d.fy = event.y;
+      })
+      .on('end', (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+      })
+    );
+
+  node.append('rect')
+    .attr('width', nodeW)
+    .attr('height', nodeH)
+    .attr('rx', 8)
+    .attr('fill', d => COLOR_MAP[d.color].hex + '22')
+    .attr('stroke', d => COLOR_MAP[d.color].hex + '55')
+    .attr('stroke-width', 1.5);
+
+  node.append('text')
+    .attr('x', nodeW / 2)
+    .attr('y', nodeH / 2 - 2)
+    .attr('text-anchor', 'middle')
+    .attr('dominant-baseline', 'middle')
+    .attr('fill', d => COLOR_MAP[d.color].hex)
+    .attr('font-size', '11px')
+    .attr('font-weight', '500')
+    .text(d => truncate(d.name, 16) + (d.isLead ? ' (Lead)' : ''));
+
+  node.append('text')
+    .attr('x', nodeW / 2)
+    .attr('y', nodeH / 2 + 12)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#6b7280')
+    .attr('font-size', '9px')
+    .text(d => d.eventCount + ' events');
+
+  // Tick function
+  simulation.on('tick', () => {
+    node.attr('transform', d => `translate(${d.x - nodeW/2},${d.y - nodeH/2})`);
+
+    linkPath.attr('d', d => {
+      const dx = d.target.x - d.source.x;
+      const dy = d.target.y - d.source.y;
+      const dr = Math.sqrt(dx * dx + dy * dy) * 0.6;
+      return `M${d.source.x},${d.source.y} A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+    });
+
+    linkLabel
+      .attr('x', d => (d.source.x + d.target.x) / 2)
+      .attr('y', d => (d.source.y + d.target.y) / 2 - 8);
+  });
+
+  // Add zoom controls
+  addZoomControls(svg, zoom, width, height);
+}
+
+function addZoomControls(svg, zoom, width, height) {
+  const controls = document.createElement('div');
+  controls.id = 'zoomControls';
+  controls.className = 'absolute bottom-4 right-4 flex gap-2 z-10';
+  controls.innerHTML = `
+    <button class="px-2.5 py-1.5 text-xs bg-panel border border-border rounded-md text-gray-300 hover:bg-white/10 transition-colors" data-zoom="reset">Reset</button>
+    <button class="px-2.5 py-1.5 text-xs bg-panel border border-border rounded-md text-gray-300 hover:bg-white/10 transition-colors" data-zoom="in">+</button>
+    <button class="px-2.5 py-1.5 text-xs bg-panel border border-border rounded-md text-gray-300 hover:bg-white/10 transition-colors" data-zoom="out">&minus;</button>
+  `;
+
+  // Insert into the flow diagram container (which has relative positioning via Tailwind)
+  const flowContainer = svg.node().parentElement;
+  flowContainer.style.position = 'relative';
+  flowContainer.appendChild(controls);
+
+  controls.addEventListener('click', (e) => {
+    const action = e.target.dataset.zoom;
+    if (!action) return;
+    const transition = svg.transition().duration(300);
+    if (action === 'reset') {
+      svg.call(zoom.transform, d3.zoomIdentity);
+    } else if (action === 'in') {
+      svg.call(zoom.scaleBy, transition, 1.3);
+    } else if (action === 'out') {
+      svg.call(zoom.scaleBy, transition, 0.7);
+    }
+  });
+}
+
+function truncate(s, max) {
+  return s.length > max ? s.slice(0, max - 1) + '\u2026' : s;
+}
+
+// --- Timeline ---
+function renderTimeline(comms, filterFrom, filterTo) {
+  const el = document.getElementById('timeline');
+  let filtered = comms;
+  if (filterFrom && filterTo) {
+    filtered = comms.filter(c =>
+      (c.from === filterFrom && c.to === filterTo) ||
+      (c.from === filterTo && c.to === filterFrom)
+    );
+  } else if (filterFrom) {
+    filtered = comms.filter(c => c.from === filterFrom || c.to === filterFrom);
+  }
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="text-sm text-muted py-4 text-center">No communications</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map((c, i) => {
+    const time = c.timestamp ? new Date(c.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+    const fromColor = agentColorMap[c.from] || 'indigo';
+    const toColor = agentColorMap[c.to] || 'emerald';
+    const fc = COLOR_MAP[fromColor];
+    const tc = COLOR_MAP[toColor];
+    const fromName = resolveAgentName(c.from);
+    const toName = resolveAgentName(c.to);
+    const preview = c.content ? c.content.slice(0, 160).replace(/</g, '&lt;') : '';
+    const hasMore = c.content && c.content.length > 160;
+
+    return `<div class="flex gap-3 px-3 py-2.5 rounded-md hover:bg-white/5 cursor-pointer transition-colors animate-in"
+      onclick="openPanel(${i})" style="animation-delay: ${Math.min(i * 20, 300)}ms">
+      <span class="text-xs text-muted whitespace-nowrap mt-0.5 w-20 shrink-0">${time}</span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-1.5 text-sm">
+          <span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium ${fc.bg} ${fc.text}">${truncate(fromName, 14)}</span>
+          <span class="text-muted text-xs">&rarr;</span>
+          <span class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium ${tc.bg} ${tc.text}">${truncate(toName, 14)}</span>
+        </div>
+        ${preview ? `<div class="text-xs text-gray-400 mt-1 truncate">${preview}${hasMore ? '...' : ''}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function resolveAgentName(id) {
+  if (!currentSession) return id;
+  const agent = currentSession.agents[id];
+  return agent ? (agent.name || id.slice(0, 12)) : id.slice(0, 12);
+}
+
+function filterTimeline(from, to) {
+  if (!currentSession) return;
+  timelineFilter = { from, to };
+  document.getElementById('clearFilter').classList.remove('hidden');
+  renderTimeline(currentSession.communications, from, to);
+}
+
+function clearTimelineFilter() {
+  if (!currentSession) return;
+  timelineFilter = null;
+  document.getElementById('clearFilter').classList.add('hidden');
+  renderTimeline(currentSession.communications);
+}
+
+// --- Panel ---
+function openPanel(index) {
+  if (!currentSession) return;
+  const comms = timelineFilter
+    ? currentSession.communications.filter(c => {
+        if (timelineFilter.from && timelineFilter.to) {
+          return (c.from === timelineFilter.from && c.to === timelineFilter.to) ||
+                 (c.from === timelineFilter.to && c.to === timelineFilter.from);
+        }
+        return c.from === timelineFilter.from || c.to === timelineFilter.from;
+      })
+    : currentSession.communications;
+  const comm = comms[index];
+  if (!comm) return;
+
+  const fromName = resolveAgentName(comm.from);
+  const toName = resolveAgentName(comm.to);
+  document.getElementById('panelTitle').textContent = `${fromName} \u2192 ${toName}`;
+  document.getElementById('panelContent').textContent = comm.content || '(no content captured)';
+  document.getElementById('overlay').classList.remove('hidden');
+  document.getElementById('slidePanel').classList.add('open');
+}
+
+function closePanel() {
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('slidePanel').classList.remove('open');
+}
+
+// Keyboard shortcut
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closePanel();
+});
+
+// Boot
+init();
+</script>
+</body>
+</html>
