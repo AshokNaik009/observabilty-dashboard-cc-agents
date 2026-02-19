@@ -74,7 +74,7 @@ app.post('/api/refresh', async (_req, res) => {
 });
 
 // Serve static files
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'frontend', 'dist')));
 
 app.listen(PORT, () => {
   console.log(`Agent Observability UI running at http://localhost:${PORT}`);

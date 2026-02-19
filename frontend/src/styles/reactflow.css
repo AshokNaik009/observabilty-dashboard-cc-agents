@@ -1,0 +1,45 @@
+.react-flow__node {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.react-flow__controls {
+  background: #1a1d27;
+  border: 1px solid #2a2d3a;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.react-flow__controls-button {
+  background: #1a1d27;
+  border-bottom: 1px solid #2a2d3a;
+  fill: #9ca3af;
+  width: 28px;
+  height: 28px;
+}
+
+.react-flow__controls-button:hover {
+  background: #2a2d3a;
+  fill: #e5e7eb;
+}
+
+.react-flow__minimap {
+  background: #1a1d27 !important;
+  border: 1px solid #2a2d3a;
+  border-radius: 8px;
+}
+
+.react-flow__background pattern circle {
+  fill: #2a2d3a;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__edge-textbg {
+  fill: #1a1d27;
+}
+
+.react-flow__edge-text {
+  fill: #9ca3af;
+}
