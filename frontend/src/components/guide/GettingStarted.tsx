@@ -1,7 +1,100 @@
+import { useState } from 'react';
+
+const PROMPT_TEMPLATES = [
+  {
+    title: 'Code Review Team',
+    description: 'Lead agent + two specialized reviewers for code quality and security',
+    prompt: `Create a team to review the current codebase with these agents:
+- lead: coordinate the review and produce final report
+- style-reviewer: check code style, naming, and documentation
+- security-reviewer: identify potential security issues and edge cases
+
+Ask each reviewer to examine the most recently modified files and report findings.`,
+  },
+  {
+    title: 'Research Team',
+    description: 'Lead + researcher + writer to produce a document collaboratively',
+    prompt: `Create a team to research and document a topic with these agents:
+- lead: define the research questions and assemble the final document
+- researcher: gather facts, summarize sources, and outline key points
+- writer: draft polished prose from the researcher's notes
+
+The topic is: [describe your research topic here]`,
+  },
+  {
+    title: 'Bug Hunt Team',
+    description: 'Lead + debugger + tester to track down and verify a fix',
+    prompt: `Create a team to investigate and fix a bug with these agents:
+- lead: triage the issue and coordinate the investigation
+- debugger: trace execution, identify root cause, and implement a fix
+- tester: write a regression test that reproduces the bug and verifies the fix
+
+The issue is: [describe the bug here]`,
+  },
+  {
+    title: 'Feature Build Team',
+    description: 'Lead + architect + coder + tester for a full 4-agent build workflow',
+    prompt: `Create a team to implement a new feature with these agents:
+- lead: break down requirements and integrate finished work
+- architect: design the data model and API surface before coding begins
+- coder: implement the feature based on the architect's design
+- tester: write unit and integration tests and verify the implementation
+
+The feature is: [describe the feature here]`,
+  },
+];
+
+function PromptCard({ template }: { template: typeof PROMPT_TEMPLATES[0] }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(template.prompt).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="bg-surface border border-border rounded-lg p-4 flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium text-white">{template.title}</div>
+          <div className="text-xs text-gray-400 mt-0.5">{template.description}</div>
+        </div>
+        <button
+          onClick={handleCopy}
+          className={`shrink-0 text-[11px] font-medium px-2.5 py-1 rounded transition-colors ${
+            copied
+              ? 'bg-emerald-500/20 text-emerald-300'
+              : 'bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25'
+          }`}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+      <pre className="text-[11px] text-gray-400 bg-panel border border-border rounded p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap">
+        {template.prompt}
+      </pre>
+    </div>
+  );
+}
+
 export function GettingStarted() {
   return (
     <div className="h-full overflow-y-auto scrollbar-thin">
       <div className="max-w-3xl mx-auto py-10 px-6 space-y-8">
+        {/* Prompt Library */}
+        <Section title="Prompt Library — Ready-to-Use Team Prompts">
+          <p className="text-sm text-gray-400 mb-4">
+            Copy any prompt below and paste it directly into Claude Code to spin up a
+            multi-agent team. Each prompt creates a full team with defined roles.
+          </p>
+          <div className="space-y-4">
+            {PROMPT_TEMPLATES.map((t) => (
+              <PromptCard key={t.title} template={t} />
+            ))}
+          </div>
+        </Section>
         {/* Hero */}
         <div className="text-center space-y-3">
           <h2 className="text-2xl font-bold text-white">Agent Observability</h2>

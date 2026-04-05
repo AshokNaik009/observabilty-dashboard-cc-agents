@@ -38,8 +38,9 @@ export function TimelineEntry({
   const tc = COLOR_MAP[toColor];
   const fromName = resolveAgentName(comm.from);
   const toName = resolveAgentName(comm.to);
-  const preview = comm.content ? comm.content.slice(0, 160) : '';
-  const hasMore = comm.content && comm.content.length > 160;
+  const contentStr = typeof comm.content === 'string' ? comm.content : JSON.stringify(comm.content ?? '');
+  const preview = contentStr.slice(0, 160);
+  const hasMore = contentStr.length > 160;
 
   return (
     <div

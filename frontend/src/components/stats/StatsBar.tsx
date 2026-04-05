@@ -17,6 +17,7 @@ export function StatsBar({ session }: Props) {
       <StatCard label="Messages" value={commCount} />
       <StatCard label="Duration" value={dur} />
       <StatCard label="Events" value={session.stats.totalEvents} />
+      <StatCard label="Tasks" value={session.tasks.length} />
     </div>
   );
 }

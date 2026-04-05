@@ -262,7 +262,8 @@ export class SessionParser {
     const spawns: { name: string; timestamp: number }[] = [];
     for (const event of allEvents) {
       for (const tool of event.toolUse || []) {
-        if (tool.name === 'Task' && tool.input?.name) {
+        // Handle both Task tool (old) and Agent tool (new team spawn pattern)
+        if ((tool.name === 'Task' || tool.name === 'Agent') && tool.input?.name) {
           spawns.push({ name: tool.input.name, timestamp: new Date(event.timestamp).getTime() });
         }
       }
@@ -292,6 +293,23 @@ export class SessionParser {
       if (bestId) {
         nameMap.set(bestId, spawn.name);
         usedAgents.add(bestId);
+      }
+    }
+
+    // Fallback: extract name from initial <teammate-message> prompt text for unmatched agents.
+    // Pattern: "You are the {name} on the" or "You are {name},"
+    for (const [agentId, events] of agentEventMap) {
+      if (nameMap.has(agentId)) continue;
+      const firstUserEvent = events.find(e => e.type === 'user' && e.textContent);
+      if (!firstUserEvent) continue;
+      const text = firstUserEvent.textContent;
+      const match = text.match(/You are (?:the )?([a-zA-Z0-9_-]+)/);
+      if (match) {
+        const candidate = match[1];
+        // Avoid generic words like "a", "an", "the", "working", etc.
+        if (candidate.length > 2 && !['the', 'an', 'working', 'now', 'tasked', 'responsible'].includes(candidate)) {
+          nameMap.set(agentId, candidate);
+        }
       }
     }
 
@@ -359,11 +377,12 @@ export class SessionParser {
 
       for (const tool of event.toolUse || []) {
         if (tool.name === 'SendMessage' && tool.input) {
+          const rawContent = tool.input.message ?? tool.input.content ?? tool.input;
           communications.push({
             timestamp: event.timestamp,
             from: event.agentId,
             to: tool.input.recipient || 'unknown',
-            content: tool.input.message || tool.input.content || JSON.stringify(tool.input),
+            content: typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent),
             direction: 'outgoing'
           });
         }

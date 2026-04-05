@@ -13,6 +13,14 @@ export interface AgentNodeData {
   agentId: string;
 }
 
+export interface TaskNodeData {
+  [key: string]: unknown;
+  label: string;
+  status: string;
+  taskIndex: number;
+  createdBy: string;
+}
+
 export interface CommEdgeData {
   [key: string]: unknown;
   count: number;
@@ -21,6 +29,9 @@ export interface CommEdgeData {
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 70;
+const TASK_NODE_WIDTH = 160;
+const TASK_NODE_HEIGHT = 52;
+const MAX_TASK_NODES = 8;
 
 export function buildGraphLayout(session: ParsedSession): {
   nodes: Node[];
@@ -51,21 +62,29 @@ export function buildGraphLayout(session: ParsedSession): {
     pairCount[key] = (pairCount[key] || 0) + 1;
   }
 
+  // Tasks to render (cap at MAX_TASK_NODES)
+  const tasksToShow = session.tasks.slice(0, MAX_TASK_NODES);
+
   // Create Dagre graph
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 120 });
   g.setDefaultEdgeLabel(() => ({}));
 
-  // Add nodes
+  // Add agent nodes
   agents.forEach((agent) => {
     g.setNode(agent.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   });
 
-  // Add edges
+  // Add task nodes
+  tasksToShow.forEach((task, i) => {
+    const taskId = `task-${i}`;
+    g.setNode(taskId, { width: TASK_NODE_WIDTH, height: TASK_NODE_HEIGHT });
+  });
+
+  // Add agent-agent edges
   const edgeKeys = Object.keys(pairCount);
   edgeKeys.forEach((key) => {
     const [a, b] = key.split('|');
-    // Lead → sub direction
     const aAgent = session.agents[a];
     const bAgent = session.agents[b];
     if (aAgent?.isLead) {
@@ -77,9 +96,22 @@ export function buildGraphLayout(session: ParsedSession): {
     }
   });
 
+  // Add agent → task creation edges
+  tasksToShow.forEach((task, i) => {
+    const taskId = `task-${i}`;
+    const creatorId = resolveId(task.createdBy) || task.createdBy;
+    if (session.agents[creatorId]) {
+      g.setEdge(creatorId, taskId);
+    } else {
+      // Fallback: connect from lead
+      const leadId = agentIds.find(id => session.agents[id].isLead) || agentIds[0];
+      if (leadId) g.setEdge(leadId, taskId);
+    }
+  });
+
   dagre.layout(g);
 
-  // Convert to React Flow nodes
+  // Convert agent nodes to React Flow nodes
   const nodes: Node[] = agents.map((agent) => {
     const nodeData = g.node(agent.id);
     return {
@@ -100,7 +132,28 @@ export function buildGraphLayout(session: ParsedSession): {
     };
   });
 
-  // Convert to React Flow edges
+  // Convert task nodes to React Flow nodes
+  tasksToShow.forEach((task, i) => {
+    const taskId = `task-${i}`;
+    const nodeData = g.node(taskId);
+    if (!nodeData) return;
+    nodes.push({
+      id: taskId,
+      type: 'taskNode',
+      position: {
+        x: nodeData.x - TASK_NODE_WIDTH / 2,
+        y: nodeData.y - TASK_NODE_HEIGHT / 2,
+      },
+      data: {
+        label: task.subject ? task.subject.slice(0, 38) : `Task ${i + 1}`,
+        status: task.status || 'pending',
+        taskIndex: i,
+        createdBy: task.createdBy,
+      } satisfies TaskNodeData,
+    });
+  });
+
+  // Convert agent-agent communications to React Flow edges
   const edges: Edge[] = edgeKeys.map((key) => {
     const [a, b] = key.split('|');
     const aAgent = session.agents[a];
@@ -127,6 +180,23 @@ export function buildGraphLayout(session: ParsedSession): {
         color: targetColor,
       } satisfies CommEdgeData,
     };
+  });
+
+  // Add task creation edges
+  tasksToShow.forEach((task, i) => {
+    const taskId = `task-${i}`;
+    const creatorId = resolveId(task.createdBy) || task.createdBy;
+    const sourceId = session.agents[creatorId]
+      ? creatorId
+      : agentIds.find(id => session.agents[id].isLead) || agentIds[0];
+    if (!sourceId) return;
+    edges.push({
+      id: `task-edge-${i}`,
+      source: sourceId,
+      target: taskId,
+      type: 'default',
+      style: { strokeDasharray: '4 2', stroke: '#6366f155', strokeWidth: 1.5 },
+    });
   });
 
   return { nodes, edges };

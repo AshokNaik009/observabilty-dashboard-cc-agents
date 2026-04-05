@@ -9,10 +9,14 @@ import { MessageDetailPanel } from './components/panel/MessageDetailPanel';
 import { PerformancePanel } from './components/performance/PerformancePanel';
 import { AgentFilterChips } from './components/search/SearchBar';
 import { GettingStarted } from './components/guide/GettingStarted';
+import { useSessionStream } from './hooks/useSessionStream';
 
 export default function App() {
   const selectedId = useSessionStore((s) => s.selectedSessionId);
   const { data: session, isLoading } = useSession(selectedId);
+
+  const isActive = session ? session.endTime === null : false;
+  useSessionStream(selectedId, isActive);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-surface text-gray-200">

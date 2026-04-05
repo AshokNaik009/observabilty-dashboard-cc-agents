@@ -67,4 +67,5 @@ export interface SessionSummary {
   duration: number | null;
   agentCount: number;
   gitBranch: string | null;
+  healthScore: number | null;
 }

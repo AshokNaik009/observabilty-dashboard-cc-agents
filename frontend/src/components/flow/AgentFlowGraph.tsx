@@ -11,10 +11,11 @@ import type { ParsedSession } from '../../types';
 import { useSessionStore } from '../../hooks/useSessionStore';
 import { useGraphLayout } from './useGraphLayout';
 import { AgentNode } from './AgentNode';
+import { TaskNode } from './TaskNode';
 import { CommunicationEdge } from './CommunicationEdge';
-import type { AgentNodeData } from '../../lib/graph';
+import type { AgentNodeData, TaskNodeData } from '../../lib/graph';
 
-const nodeTypes = { agentNode: AgentNode };
+const nodeTypes = { agentNode: AgentNode, taskNode: TaskNode };
 const edgeTypes = { communicationEdge: CommunicationEdge };
 
 interface Props {
@@ -26,9 +27,15 @@ export function AgentFlowGraph({ session }: Props) {
   const setTimelineFilter = useSessionStore((s) => s.setTimelineFilter);
 
   const onNodeClick = useCallback(
-    (_event: React.MouseEvent, node: { data: Record<string, unknown> }) => {
-      const data = node.data as unknown as AgentNodeData;
-      setTimelineFilter({ agentId: data.agentId });
+    (_event: React.MouseEvent, node: { id: string; type?: string; data: Record<string, unknown> }) => {
+      if (node.type === 'taskNode') {
+        const data = node.data as unknown as TaskNodeData;
+        // Filter timeline to the task creator's agent
+        setTimelineFilter({ agentId: data.createdBy });
+      } else {
+        const data = node.data as unknown as AgentNodeData;
+        setTimelineFilter({ agentId: data.agentId });
+      }
     },
     [setTimelineFilter],
   );

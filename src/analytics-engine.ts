@@ -595,3 +595,29 @@ export class AnalyticsEngine {
     return `${seconds}s`;
   }
 }
+
+/**
+ * Compute a 0-100 health score for a single parsed session.
+ * Components: utilization (40%), communication balance (30%), throughput (30%).
+ */
+export function computeSessionHealthScore(parsed: ParsedSession): number {
+  const agentCount = parsed.stats.agentCount;
+  if (agentCount <= 0) return 0;
+
+  const agents = Object.values(parsed.agents);
+  const activeAgents = agents.filter(a => a.eventCount > 2).length;
+  const utilizationScore = (activeAgents / agentCount) * 100;
+
+  const commsPerAgent = parsed.communications.length / agentCount;
+  let communicationScore = 0;
+  if (commsPerAgent >= 3 && commsPerAgent <= 10) {
+    communicationScore = 100;
+  } else if (commsPerAgent > 0) {
+    communicationScore = 50;
+  }
+
+  const toolsPerAgent = parsed.stats.toolUsages / agentCount;
+  const throughputScore = Math.min(100, toolsPerAgent * 5);
+
+  return Math.round((utilizationScore * 0.4) + (communicationScore * 0.3) + (throughputScore * 0.3));
+}
